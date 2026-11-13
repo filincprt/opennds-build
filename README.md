@@ -14,7 +14,7 @@ The build runs in GitHub Actions. No Linux, Ubuntu, WSL, or compiler is required
 
 openNDS depends on \`libmicrohttpd-no-ssl\`. The upstream OpenWrt libmicrohttpd feed Makefile defines both no-SSL and SSL variants in one source package. Recursively installing that feed package also follows the SSL variant's GnuTLS dependency tree; in the previous workflow this pulled in Unbound and failed because the SDK build did not stage OpenSSL.
 
-This repository therefore carries a minimal, pinned recipe for **only** the upstream \`libmicrohttpd-no-ssl\` variant. It disables HTTPS and GnuTLS, and does not install or build the SSL sibling variant. The openNDS package recipe follows the upstream OpenWrt Makefile from the official openNDS v11.0.0 tag.
+This repository therefore carries a minimal, pinned recipe for **only** the upstream \`libmicrohttpd-no-ssl\` variant. It disables HTTPS and GnuTLS, and does not install or build the SSL sibling variant. The openNDS package recipe follows the upstream OpenWrt Makefile from the official openNDS v11.0.0 tag. The codeload archive uses the case-sensitive top-level directory `openNDS-11.0.0`, while OpenWrt's default package build directory would be lowercase `opennds-11.0.0`; the recipe explicitly sets `PKG_BUILD_DIR` to the exact archive root and the workflow verifies the Makefile and source files before compiling.
 
 The workflow does not update or install additional package feeds.
 

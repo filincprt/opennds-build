@@ -148,11 +148,32 @@ jobs:
           test -f staging_dir/target-aarch64_cortex-a53_musl/usr/include/microhttpd.h
           find bin/packages -type f -name 'libmicrohttpd-no-ssl*.apk' -print
 
+      - name: Prepare and verify the case-sensitive openNDS source tree
+        run: |
+          set -euxo pipefail
+          cd "$SDK_DIR"
+
+          # GitHub's v11.0.0 archive root is "openNDS-11.0.0" (mixed case).
+          # The package recipe intentionally points PKG_BUILD_DIR at that exact path.
+          make package/opennds/prepare V=s
+          OPENNDS_BUILD_DIR="$SDK_DIR/build_dir/target-aarch64_cortex-a53_musl/openNDS-$OPENNDS_VERSION"
+
+          test -f "$OPENNDS_BUILD_DIR/Makefile"
+          test -f "$OPENNDS_BUILD_DIR/src/main.c"
+          test -f "$OPENNDS_BUILD_DIR/linux_openwrt/opennds/files/etc/config/opennds"
+          echo "Verified source root and package files:"
+          ls -ld "$OPENNDS_BUILD_DIR"
+          ls -l "$OPENNDS_BUILD_DIR/Makefile" "$OPENNDS_BUILD_DIR/src/main.c"
+
       - name: Build openNDS 11.0.0
         run: |
           set -euxo pipefail
           cd "$SDK_DIR"
           make -j2 package/opennds/compile V=s
+
+          OPENNDS_BUILD_DIR="$SDK_DIR/build_dir/target-aarch64_cortex-a53_musl/openNDS-$OPENNDS_VERSION"
+          test -x "$OPENNDS_BUILD_DIR/opennds"
+          test -x "$OPENNDS_BUILD_DIR/ndsctl"
 
       - name: Verify package outputs and collect artifacts
         run: |
