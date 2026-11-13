@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "package/opennds/Makefile"
+      - "package/**/Makefile"
       - ".github/workflows/build-opennds.yml"
 
 permissions:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build APK (mediatek/filogic)
+    name: Build APKs (mediatek/filogic, no-SSL MHD)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
@@ -26,8 +26,10 @@ jobs:
       OPENWRT_VERSION: "25.12.6"
       OPENNDS_VERSION: "11.0.0"
       OPENNDS_TAG_COMMIT: "9477b224bfd6d7f27ab1f1931afb61580b9470d1"
+      OPENNDS_SOURCE_SHA256: "33940f8ef52e958cdf37fd49ca20a8140b85a096d529cf4e0122592ac24ced00"
       SDK_SHA256: "1c04ac47bdfc361d6aab299eb520d570e368013dedcb8d29cf39dc7168ae642e"
       SDK_FILE: "openwrt-sdk-25.12.6-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+      LIBMICROHTTPD_VERSION: "1.0.2"
 
     steps:
       - name: Check out build recipe
@@ -45,83 +47,106 @@ jobs:
       - name: Download and verify the official OpenWrt SDK
         run: |
           set -euxo pipefail
-          SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mediatek/filogic/${SDK_FILE}"
+          SDK_URL="https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/mediatek/filogic/$SDK_FILE"
           curl --fail --location --retry 3 --retry-all-errors \
             "$SDK_URL" -o "$RUNNER_TEMP/$SDK_FILE"
+
           ACTUAL_SDK_SHA256="$(sha256sum "$RUNNER_TEMP/$SDK_FILE" | awk '{print $1}')"
           echo "Expected SDK SHA-256: $SDK_SHA256"
           echo "Actual SDK SHA-256:   $ACTUAL_SDK_SHA256"
           test "$ACTUAL_SDK_SHA256" = "$SDK_SHA256"
+
           mkdir -p "$RUNNER_TEMP/openwrt-sdk"
           tar --zstd -xf "$RUNNER_TEMP/$SDK_FILE" -C "$RUNNER_TEMP/openwrt-sdk"
           SDK_DIR="$(find "$RUNNER_TEMP/openwrt-sdk" -mindepth 1 -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)"
           test -n "$SDK_DIR"
           echo "SDK_DIR=$SDK_DIR" >> "$GITHUB_ENV"
-          echo "SDK archive SHA-256 verified: $SDK_SHA256"
+          echo "SDK archive SHA-256 verified."
 
-      - name: Verify the official openNDS tag
+      - name: Verify the official openNDS tag and source archive
         run: |
           set -euxo pipefail
+
           CHECK_DIR="$RUNNER_TEMP/opennds-tag-check"
           mkdir -p "$CHECK_DIR"
           git -C "$CHECK_DIR" init
           git -C "$CHECK_DIR" fetch --depth=1 \
             https://github.com/openNDS/openNDS.git \
-            "refs/tags/v${OPENNDS_VERSION}"
+            "refs/tags/v$OPENNDS_VERSION"
+
           ACTUAL_COMMIT="$(git -C "$CHECK_DIR" rev-parse 'FETCH_HEAD^{commit}')"
-          echo "Expected: $OPENNDS_TAG_COMMIT"
-          echo "Actual:   $ACTUAL_COMMIT"
+          echo "Expected openNDS commit: $OPENNDS_TAG_COMMIT"
+          echo "Actual openNDS commit:   $ACTUAL_COMMIT"
           test "$ACTUAL_COMMIT" = "$OPENNDS_TAG_COMMIT"
 
-      - name: Update the pinned packages feed and install the build dependency
-        run: |
-          set -euxo pipefail
-          cd "$SDK_DIR"
-          ./scripts/feeds update packages
-          ./scripts/feeds install -p packages libmicrohttpd
-          test -f package/feeds/packages/libmicrohttpd/Makefile
-
-      - name: Stage pinned openNDS source and package recipe
-        run: |
-          set -euxo pipefail
-          cd "$SDK_DIR"
-          mkdir -p dl package/opennds
-          SOURCE_ARCHIVE="opennds-${OPENNDS_VERSION}.tar.gz"
-          SOURCE_URL="https://codeload.github.com/openNDS/openNDS/tar.gz/v${OPENNDS_VERSION}"
+          SOURCE_ARCHIVE="opennds-$OPENNDS_VERSION.tar.gz"
+          SOURCE_URL="https://codeload.github.com/openNDS/openNDS/tar.gz/v$OPENNDS_VERSION"
           curl --fail --location --retry 3 --retry-all-errors \
-            "$SOURCE_URL" -o "dl/$SOURCE_ARCHIVE"
+            "$SOURCE_URL" -o "$RUNNER_TEMP/$SOURCE_ARCHIVE"
 
-          # Read the full listing: piping tar into head triggers SIGPIPE under pipefail.
-          tar -tzf "dl/$SOURCE_ARCHIVE" > "$RUNNER_TEMP/opennds-archive-files.txt"
+          ACTUAL_SOURCE_SHA256="$(sha256sum "$RUNNER_TEMP/$SOURCE_ARCHIVE" | awk '{print $1}')"
+          echo "Expected openNDS source SHA-256: $OPENNDS_SOURCE_SHA256"
+          echo "Actual openNDS source SHA-256:   $ACTUAL_SOURCE_SHA256"
+          test "$ACTUAL_SOURCE_SHA256" = "$OPENNDS_SOURCE_SHA256"
+
+          # Avoid tar | head: with pipefail, tar receives SIGPIPE and fails.
+          tar -tzf "$RUNNER_TEMP/$SOURCE_ARCHIVE" > "$RUNNER_TEMP/opennds-archive-files.txt"
           SOURCE_ROOT="$(sed -n '1p' "$RUNNER_TEMP/opennds-archive-files.txt")"
-          test -n "$SOURCE_ROOT"
-          echo "Source archive root: $SOURCE_ROOT"
-          case "$SOURCE_ROOT" in
-            "openNDS-${OPENNDS_VERSION}/"*) ;;
-            *) echo "Unexpected openNDS source archive layout"; exit 1 ;;
-          esac
+          test "$SOURCE_ROOT" = "openNDS-$OPENNDS_VERSION/"
 
-          echo "openNDS source archive SHA-256:"
-          sha256sum "dl/$SOURCE_ARCHIVE"
+          echo "SOURCE_ARCHIVE=$SOURCE_ARCHIVE" >> "$GITHUB_ENV"
+          echo "openNDS tag, commit, archive checksum and archive layout verified."
 
-          cp "$GITHUB_WORKSPACE/package/opennds/Makefile" package/opennds/Makefile
-
-      - name: Configure SDK packages
+      - name: Stage minimal local package recipes
         run: |
           set -euxo pipefail
           cd "$SDK_DIR"
+
+          # No packages feed is installed. The local MHD recipe deliberately
+          # builds only libmicrohttpd-no-ssl, so no GnuTLS/Unbound/OpenSSL
+          # dependency graph can be pulled in through the SSL sibling variant.
+          mkdir -p package/libmicrohttpd package/opennds dl
+          cp "$GITHUB_WORKSPACE/package/libmicrohttpd/Makefile" \
+            package/libmicrohttpd/Makefile
+          cp "$GITHUB_WORKSPACE/package/opennds/Makefile" \
+            package/opennds/Makefile
+          cp "$RUNNER_TEMP/$SOURCE_ARCHIVE" "dl/$SOURCE_ARCHIVE"
+
+          test -s package/libmicrohttpd/Makefile
+          test -s package/opennds/Makefile
+          test -s "dl/$SOURCE_ARCHIVE"
+
+      - name: Configure only the required target packages
+        run: |
+          set -euxo pipefail
+          cd "$SDK_DIR"
+
           {
             echo "CONFIG_PACKAGE_libmicrohttpd-no-ssl=m"
             echo "CONFIG_PACKAGE_opennds=m"
           } >> .config
-          make defconfig
-          grep -E '^CONFIG_TARGET_ARCH_PACKAGES=|^CONFIG_PACKAGE_(libmicrohttpd-no-ssl|opennds)=' .config
 
-      - name: Build libmicrohttpd (no SSL)
+          make defconfig
+
+          grep -E '^CONFIG_TARGET_ARCH_PACKAGES=|^CONFIG_PACKAGE_(libmicrohttpd-no-ssl|opennds)=' .config
+          grep -q '^CONFIG_PACKAGE_libmicrohttpd-no-ssl=m$' .config
+          grep -q '^CONFIG_PACKAGE_opennds=m$' .config
+
+          # Fail fast if an SSL-only or unrelated resolver dependency reappears.
+          if grep -Eq '^CONFIG_PACKAGE_(libmicrohttpd-ssl|libgnutls|unbound)(=y|=m)$' .config; then
+            echo "Unexpected SSL/GnuTLS/Unbound package selected in the build config."
+            grep -E '^CONFIG_PACKAGE_(libmicrohttpd-ssl|libgnutls|unbound)=' .config || true
+            exit 1
+          fi
+
+      - name: Build libmicrohttpd without SSL
         run: |
           set -euxo pipefail
           cd "$SDK_DIR"
-          make -j2 package/feeds/packages/libmicrohttpd/compile V=s
+          make -j2 package/libmicrohttpd/compile V=s
+
+          test -f staging_dir/target-aarch64_cortex-a53_musl/usr/include/microhttpd.h
+          find bin/packages -type f -name 'libmicrohttpd-no-ssl*.apk' -print
 
       - name: Build openNDS 11.0.0
         run: |
@@ -129,37 +154,59 @@ jobs:
           cd "$SDK_DIR"
           make -j2 package/opennds/compile V=s
 
-      - name: Collect APK and checksums
+      - name: Verify package outputs and collect artifacts
         run: |
           set -euxo pipefail
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          mapfile -t PACKAGES < <(
-            find "$SDK_DIR/bin/packages" -type f -name 'opennds*.apk' -print
-          )
-          if [ "${#PACKAGES[@]}" -ne 1 ]; then
-            echo "Expected exactly one openNDS APK, found ${#PACKAGES[@]}"
+
+          OPENNDS_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds_*.apk' -print -quit)"
+          OPENNDS_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds_*.apk' -print | wc -l)"
+          MHD_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl_*.apk' -print -quit)"
+          MHD_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl_*.apk' -print | wc -l)"
+
+          if [ "$OPENNDS_COUNT" -ne 1 ] || [ -z "$OPENNDS_APK" ]; then
+            echo "Expected exactly one openNDS APK, found $OPENNDS_COUNT"
             find "$SDK_DIR/bin/packages" -type f -name '*.apk' -print | sort
             exit 1
           fi
 
-          cp "${PACKAGES[0]}" "$GITHUB_WORKSPACE/artifacts/"
-          cp "$SDK_DIR/dl/opennds-${OPENNDS_VERSION}.tar.gz" \
-            "$GITHUB_WORKSPACE/artifacts/"
+          if [ "$MHD_COUNT" -ne 1 ] || [ -z "$MHD_APK" ]; then
+            echo "Expected exactly one libmicrohttpd-no-ssl APK, found $MHD_COUNT"
+            find "$SDK_DIR/bin/packages" -type f -name '*.apk' -print | sort
+            exit 1
+          fi
+
+          cp "$OPENNDS_APK" "$GITHUB_WORKSPACE/artifacts/"
+          cp "$MHD_APK" "$GITHUB_WORKSPACE/artifacts/"
+
+          cat > "$GITHUB_WORKSPACE/artifacts/BUILD-INFO.txt" <<EOF
+          openNDS version: $OPENNDS_VERSION
+          openNDS tag commit: $OPENNDS_TAG_COMMIT
+          openNDS source archive SHA-256: $OPENNDS_SOURCE_SHA256
+          OpenWrt release: $OPENWRT_VERSION
+          OpenWrt target: mediatek/filogic
+          Package architecture: aarch64_cortex-a53
+          SDK archive: $SDK_FILE
+          SDK SHA-256: $SDK_SHA256
+          libmicrohttpd version: $LIBMICROHTTPD_VERSION
+          libmicrohttpd variant: no-SSL (no GnuTLS dependency)
+          EOF
+
           (
             cd "$GITHUB_WORKSPACE/artifacts"
-            sha256sum *.apk *.tar.gz > SHA256SUMS
+            sha256sum *.apk > SHA256SUMS
           )
 
-          echo "## openNDS build succeeded" >> "$GITHUB_STEP_SUMMARY"
-          echo "- OpenWrt: $OPENWRT_VERSION" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Target: mediatek/filogic" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Package architecture: aarch64_cortex-a53" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Build completed" >> "$GITHUB_STEP_SUMMARY"
           echo "- openNDS: $OPENNDS_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- OpenWrt SDK: $OPENWRT_VERSION / mediatek-filogic" >> "$GITHUB_STEP_SUMMARY"
+          echo "- MHD variant: no SSL" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact files:" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts:" >> "$GITHUB_STEP_SUMMARY"
           ls -lh "$GITHUB_WORKSPACE/artifacts" >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_WORKSPACE/artifacts/SHA256SUMS" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK artifact
+      - name: Upload verified APKs
         uses: actions/upload-artifact@v4
         with:
           name: opennds-11.0.0-openwrt-25.12.6-mediatek-filogic
