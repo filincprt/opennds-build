@@ -91,7 +91,10 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors \
             "$SOURCE_URL" -o "dl/$SOURCE_ARCHIVE"
 
-          SOURCE_ROOT="$(tar -tzf "dl/$SOURCE_ARCHIVE" | head -n 1)"
+          # Read the full listing: piping tar into head triggers SIGPIPE under pipefail.
+          tar -tzf "dl/$SOURCE_ARCHIVE" > "$RUNNER_TEMP/opennds-archive-files.txt"
+          SOURCE_ROOT="$(sed -n '1p' "$RUNNER_TEMP/opennds-archive-files.txt")"
+          test -n "$SOURCE_ROOT"
           echo "Source archive root: $SOURCE_ROOT"
           case "$SOURCE_ROOT" in
             "openNDS-${OPENNDS_VERSION}/"*) ;;
