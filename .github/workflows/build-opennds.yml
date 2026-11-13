@@ -26,7 +26,7 @@ jobs:
       OPENWRT_VERSION: "25.12.6"
       OPENNDS_VERSION: "11.0.0"
       OPENNDS_TAG_COMMIT: "9477b224bfd6d7f27ab1f1931afb61580b9470d1"
-      SDK_SHA256: "1c04ac47bdfc3616d6aab299eb520d570e368013dedcb8d29cf39dc7168ae642"
+      SDK_SHA256: "1c04ac47bdfc361d6aab299eb520d570e368013dedcb8d29cf39dc7168ae642e"
       SDK_FILE: "openwrt-sdk-25.12.6-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 
     steps:
