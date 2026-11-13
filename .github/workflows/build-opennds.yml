@@ -171,18 +171,21 @@ jobs:
           cd "$SDK_DIR"
           make -j2 package/opennds/compile V=s
 
-          OPENNDS_BUILD_DIR="$SDK_DIR/build_dir/target-aarch64_cortex-a53_musl/openNDS-$OPENNDS_VERSION"
-          test -x "$OPENNDS_BUILD_DIR/opennds"
-          test -x "$OPENNDS_BUILD_DIR/ndsctl"
+          # OpenWrt removes the unpacked build tree after packaging.
+          # Verify the resulting APK instead of looking for binaries in that tree.
+          OPENNDS_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds-*.apk' -print -quit)"
+          test -n "$OPENNDS_APK"
+          test -s "$OPENNDS_APK"
+          echo "Built openNDS APK: $OPENNDS_APK"
 
       - name: Verify package outputs and collect artifacts
         run: |
           set -euxo pipefail
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          OPENNDS_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds_*.apk' -print -quit)"
+          OPENNDS_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds-*.apk' -print -quit)"
           OPENNDS_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds_*.apk' -print | wc -l)"
-          MHD_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl_*.apk' -print -quit)"
+          MHD_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl-*.apk' -print -quit)"
           MHD_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl_*.apk' -print | wc -l)"
 
           if [ "$OPENNDS_COUNT" -ne 1 ] || [ -z "$OPENNDS_APK" ]; then
