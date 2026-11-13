@@ -48,7 +48,10 @@ jobs:
           SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mediatek/filogic/${SDK_FILE}"
           curl --fail --location --retry 3 --retry-all-errors \
             "$SDK_URL" -o "$RUNNER_TEMP/$SDK_FILE"
-          echo "${SDK_SHA256}  $RUNNER_TEMP/$SDK_FILE" | sha256sum --check -
+          ACTUAL_SDK_SHA256="$(sha256sum "$RUNNER_TEMP/$SDK_FILE" | awk '{print $1}')"
+          echo "Expected SDK SHA-256: $SDK_SHA256"
+          echo "Actual SDK SHA-256:   $ACTUAL_SDK_SHA256"
+          test "$ACTUAL_SDK_SHA256" = "$SDK_SHA256"
           mkdir -p "$RUNNER_TEMP/openwrt-sdk"
           tar --zstd -xf "$RUNNER_TEMP/$SDK_FILE" -C "$RUNNER_TEMP/openwrt-sdk"
           SDK_DIR="$(find "$RUNNER_TEMP/openwrt-sdk" -mindepth 1 -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)"
