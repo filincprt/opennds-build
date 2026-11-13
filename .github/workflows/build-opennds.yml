@@ -184,9 +184,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
           OPENNDS_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds-*.apk' -print -quit)"
-          OPENNDS_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds_*.apk' -print | wc -l)"
+          OPENNDS_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'opennds-*.apk' -print | wc -l)"
           MHD_APK="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl-*.apk' -print -quit)"
-          MHD_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl_*.apk' -print | wc -l)"
+          MHD_COUNT="$(find "$SDK_DIR/bin/packages" -type f -name 'libmicrohttpd-no-ssl-*.apk' -print | wc -l)"
 
           if [ "$OPENNDS_COUNT" -ne 1 ] || [ -z "$OPENNDS_APK" ]; then
             echo "Expected exactly one openNDS APK, found $OPENNDS_COUNT"
