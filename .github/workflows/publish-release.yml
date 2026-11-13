@@ -1,0 +1,61 @@
+name: Publish openNDS Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-release.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Publish verified build #9
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the successful build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: opennds-11.0.0-openwrt-25.12.6-mediatek-filogic
+          repository: ${{ github.repository }}
+          run-id: 43399198019
+          github-token: ${{ github.token }}
+          path: artifacts
+
+      - name: Verify the two APKs and checksums
+        run: |
+          set -euo pipefail
+          test -s artifacts/opennds-11.0.0-r1.apk
+          test -s artifacts/libmicrohttpd-no-ssl-1.0.2-r1.apk
+          test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
+          (
+            cd artifacts
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "opennds-11.0.0-openwrt-25.12.6-build-9" \
+            "artifacts/opennds-11.0.0-r1.apk" \
+            "artifacts/libmicrohttpd-no-ssl-1.0.2-r1.apk" \
+            --target "a7a5a658811ed0e0c3c25eca8411766786bc416b" \
+            --title "openNDS 11.0.0 for OpenWrt 25.12.6" \
+            --notes "## openNDS 11.0.0 for OpenWrt 25.12.6
+
+          Target: `mediatek/filogic`
+          Architecture: `aarch64_cortex-a53`
+          Build: GitHub Actions run #9
+
+          Includes exactly two verified APK packages:
+          - `opennds-11.0.0-r1.apk`
+          - `libmicrohttpd-no-ssl-1.0.2-r1.apk`
+
+          The libmicrohttpd package is the no-SSL variant. SHA-256 checksums were verified against the successful build artifact.
+
+          This is a custom build for the OpenWrt 25.12.6 MediaTek Filogic SDK, not an official OpenWrt repository package."
